@@ -1,7 +1,8 @@
 #include <unistd.h>
 
 int main() {
-    write(1, "test\n", 5);
+    fprintf(stderr, "child\n");
+//    system("touch file");
     return 0;
 //    int x = 1;
 //    --x;
