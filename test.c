@@ -1,10 +1,7 @@
 #include <unistd.h>
+#include <signal.h>
 
 int main() {
-    fprintf(stderr, "child\n");
-//    system("touch file");
+    kill(getpid(), SIGUSR1);
     return 0;
-//    int x = 1;
-//    --x;
-//    return x;
 }
