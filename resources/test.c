@@ -2,6 +2,6 @@
 #include <signal.h>
 
 int main() {
-    kill(getpid(), SIGUSR1);
+    kill(getpid(), SIGCONT);
     return 0;
 }

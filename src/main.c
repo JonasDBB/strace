@@ -7,6 +7,8 @@
 #include <sys/uio.h>
 #include <elf.h>
 #include <stdlib.h>
+#include <string.h>
+#include <sys/user.h>
 
 extern char** environ;
 
@@ -18,26 +20,44 @@ void fatal_error(char* err_str, int exit_status) {
     exit(exit_status);
 }
 
-long get_syscall_nr(pid_t child) {
-    int status;
+struct user_regs_struct get_syscall_nr(pid_t child) {
     struct iovec iov;
-    iov.iov_base = &status;
-    iov.iov_len = sizeof(status);
+    struct user_regs_struct regs;
+    iov.iov_base = &regs;
+    iov.iov_len = sizeof(regs);
 
     if (ptrace(PTRACE_GETREGSET, child, NT_PRSTATUS, &iov) == -1) {
         fatal_error("ptrace getregset failed", 1);
     }
 
-    return ((long*)iov.iov_base)[ORIG_RAX / sizeof(long)];
+    return regs;
+}
+
+int wait_for_syscall(pid_t child) {
+    int status;
+    while (1) {
+        if (ptrace(PTRACE_SYSCALL, child, 0, 0) == -1) {
+            fatal_error("ptrace syscall failed", 1);
+        }
+        if (waitpid(child, &status, 0) == -1) {
+            fatal_error("waitpid failed", 1);
+        }
+
+        if (WIFSTOPPED(status)) {
+            if (WSTOPSIG(status) & 0x80) {
+                return 0;
+            }
+            fprintf(stderr, "stopped by something else\n");
+        }
+
+        if (WIFEXITED(status)) {
+            return 1;
+        }
+    }
 }
 
 int do_trace(pid_t child) {
     fprintf(stderr, "child pid is %d\n", child);
-
-    int status;
-    if (waitpid(child, &status, 0) == -1) { // this hangs for some reason :(
-        fatal_error("waitpid failed", 1);
-    }
 
     if (ptrace(PTRACE_SEIZE, child, 0, PTRACE_O_TRACESYSGOOD) == -1) {
         fatal_error("ptrace seize failed", 1);
@@ -47,19 +67,31 @@ int do_trace(pid_t child) {
         fatal_error("ptrace interrupt failed", 1);
     }
 
-    while (!WIFEXITED(status)) {
-        if (ptrace(PTRACE_LISTEN, child, 0, 0) == -1) {
-            fatal_error("ptrace listen failed", 1);
+    int status;
+    if (waitpid(child, &status, 0) == -1) {
+        fatal_error("waitpid failed", 1);
+    }
+
+    while (1) {
+        if (wait_for_syscall(child) == 1) {
+            break;
         }
 
-        if (waitpid(child, &status, 0) == -1) {
-            fatal_error("waitpid failed", 1);
-        }
-
-        if (WIFSTOPPED(status)) {
-            long syscall_nr = get_syscall_nr(child);
-            fprintf(stderr, "syscall nr %ld\n", syscall_nr);
-        }
+        struct user_regs_struct regs = get_syscall_nr(child);
+        unsigned long long syscall_nr;
+        unsigned long long ret_val;
+#ifdef __x86_64__
+        syscall_nr = regs.orig_rax;
+        ret_val = regs.rax;
+#endif
+#ifdef __i386__
+        syscall_nr = regs.orig_eax;
+        ret_val = regs.eax;
+#endif
+        fprintf(stderr, "syscall nr %llu with ret %llu\n", syscall_nr, ret_val);
+//        if (WIFEXITED(status)) {
+//            break;
+//        }
     }
 
     return 0;
@@ -74,7 +106,7 @@ int execute_child(char** av) {
 
 int main(int ac, char** av) {
     if (ac < 2) {
-        fatal_error("ft_strace: must have PROG [ARGS] or -p PID\nTry \' strace-h\' for more information.", 1);
+        fatal_error("ft_strace: must have PROG [ARGS] or -p PID\nTry \'strace-h\' for more information.", 1);
     }
     // TODO: check if av[1] exists and is executable
     // TODO: maybe implement -h for help
