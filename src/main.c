@@ -12,7 +12,7 @@ extern char** environ;
 
 void fatal_error(char* err_str, int exit_status) {
     if (errno != 0) {
-        perror("error: ");
+        perror("perror");
     }
     fprintf(stderr, "%s\n", err_str);
     exit(exit_status);

@@ -4,6 +4,7 @@ project(strace C)
 set(CMAKE_C_STANDARD 11)
 
 add_executable(strace)
+add_subdirectory(src)
 target_compile_options(strace PUBLIC
 		-Wall
 		-Werror
@@ -15,4 +16,4 @@ target_link_options(strace PUBLIC
 		-fsanitize=address
 )
 
-target_sources(strace PRIVATE main.c)
+target_include_directories(strace PUBLIC inc)
