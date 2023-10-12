@@ -11,6 +11,7 @@
 #include <sys/user.h>
 
 extern char** environ;
+extern const char* const syscall_names[];
 
 void fatal_error(char* err_str, int exit_status) {
     if (errno != 0) {
@@ -88,7 +89,8 @@ int do_trace(pid_t child) {
         syscall_nr = regs.orig_eax;
         ret_val = regs.eax;
 #endif
-        fprintf(stderr, "syscall nr %llu with ret %llu\n", syscall_nr, ret_val);
+        // todo: gets printed twice for some reason, first with huge weird ret val, then with correct ret val
+        fprintf(stderr, "syscall nr [%llu] %s with ret %llu\n", syscall_nr, syscall_names[syscall_nr], ret_val);
 //        if (WIFEXITED(status)) {
 //            break;
 //        }
