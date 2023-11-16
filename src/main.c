@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/user.h>
+#include "strace.h"
 
 extern char** environ;
 extern const char* const syscall_names[];
@@ -17,11 +18,11 @@ void fatal_error(char* err_str, int exit_status) {
     if (errno != 0) {
         perror("perror");
     }
-    fprintf(stderr, "%s\n", err_str);
+    PR("%s", err_str);
     exit(exit_status);
 }
 
-struct user_regs_struct get_syscall_nr(pid_t child) {
+struct user_regs_struct get_syscall_data(pid_t child) {
     struct iovec iov;
     struct user_regs_struct regs;
     iov.iov_base = &regs;
@@ -48,18 +49,17 @@ int wait_for_syscall(pid_t child) {
             if (WSTOPSIG(status) & 0x80) {
                 return 0;
             }
-            fprintf(stderr, "stopped by something else\n");
+            PR("stopped by something else");
         }
 
         if (WIFEXITED(status)) {
+            PR("+++ exited with %d +++", status);
             return 1;
         }
     }
 }
 
 int do_trace(pid_t child) {
-    fprintf(stderr, "child pid is %d\n", child);
-
     if (ptrace(PTRACE_SEIZE, child, 0, PTRACE_O_TRACESYSGOOD) == -1) {
         fatal_error("ptrace seize failed", 1);
     }
@@ -78,30 +78,28 @@ int do_trace(pid_t child) {
             break;
         }
 
-        struct user_regs_struct regs = get_syscall_nr(child);
+        struct user_regs_struct regs = get_syscall_data(child);
         unsigned long long syscall_nr;
         unsigned long long ret_val;
-#ifdef __x86_64__
-        syscall_nr = regs.orig_rax;
-        ret_val = regs.rax;
-#endif
+
 #ifdef __i386__
         syscall_nr = regs.orig_eax;
         ret_val = regs.eax;
+#else
+        syscall_nr = regs.orig_rax;
+        ret_val = regs.rax;
 #endif
+
         // todo: gets printed twice for some reason, first with huge weird ret val, then with correct ret val
-        fprintf(stderr, "syscall nr [%llu] %s with ret %llu\n", syscall_nr, syscall_names[syscall_nr], ret_val);
-//        if (WIFEXITED(status)) {
-//            break;
-//        }
+        PR("syscall nr [%llu] %s with ret %llu", syscall_nr, syscall_names[syscall_nr], ret_val);
     }
 
     return 0;
 }
 
-int execute_child(char** av) {
-    kill(getpid(), SIGSTOP);
-    execve(*av, av, environ);
+int execute_child(char* execfile, char** av) {
+//    kill(getpid(), SIGSTOP);
+    execve(execfile, av, environ);
     fatal_error("execve failed", 1);
     return 1;
 }
@@ -110,14 +108,21 @@ int main(int ac, char** av) {
     if (ac < 2) {
         fatal_error("ft_strace: must have PROG [ARGS] or -p PID\nTry \'strace-h\' for more information.", 1);
     }
-    // TODO: check if av[1] exists and is executable
     // TODO: maybe implement -h for help
+    char exec_filename[NAMEBUF_SIZE];
+    exec_filename[0] = 0;
+    get_exec_name(av[1], exec_filename);
+    PR("%s", exec_filename);
+    if (exec_filename[0] == 0) {
+        // TODO: insert execfile
+        fatal_error("strace: Can't stat 'EXECFILE': No such file or directory", 1);
+    }
     pid_t child = fork();
     if (child == -1) {
         fatal_error("fork failed", 1);
     }
     if (child == 0) {
-        return execute_child(av + 1);
+        return execute_child(exec_filename, av + 1);
     } else {
         return do_trace(child);
     }
